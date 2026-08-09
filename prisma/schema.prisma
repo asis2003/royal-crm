@@ -1,0 +1,216 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  UNPAID
+  OTHER
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum InvoiceStatus {
+  PAID
+  PENDING
+  OVERDUE
+}
+
+enum RecurringInterval {
+  NONE
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum CaseStage {
+  INQUIRY
+  CONSULTATION
+  PROPOSAL
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  REJECTED
+}
+
+// ---------- Core identity ----------
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  passwordHash  String
+  role          Role     @default(USER)
+  department    String?
+  jobTitle      String?
+  joiningDate   DateTime?
+  phone         String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  // HR relations
+  leaveRequests      LeaveRequest[]  @relation("LeaveOwner")
+  approvedLeaves      LeaveRequest[] @relation("LeaveApprover")
+
+  // Sales/case relations
+  ownedCases     Case[]           @relation("CaseOwner")
+
+  // Finance relations
+  createdInvoices Invoice[]       @relation("InvoiceCreator")
+
+  // Communication relations
+  sentMessages    Message[]       @relation("MessageSender")
+  receivedMessages Message[]      @relation("MessageRecipient")
+  loggedCalls      CallLog[]      @relation("CallLogger")
+  notifications    Notification[]
+
+  // Employee documents
+  documents        Document[]
+}
+
+// ---------- 1. HR Management ----------
+
+model LeaveRequest {
+  id          String       @id @default(cuid())
+  employee    User         @relation("LeaveOwner", fields: [employeeId], references: [id])
+  employeeId  String
+  type        LeaveType
+  startDate   DateTime
+  endDate     DateTime
+  reason      String?
+  status      LeaveStatus  @default(PENDING)
+  approver    User?        @relation("LeaveApprover", fields: [approverId], references: [id])
+  approverId  String?
+  createdAt   DateTime     @default(now())
+}
+
+// ---------- 2. Payment & Invoice Management ----------
+
+model Invoice {
+  id             String            @id @default(cuid())
+  invoiceNumber  String            @unique
+  customerName   String
+  customerEmail  String?
+  case           Case?             @relation(fields: [caseId], references: [id])
+  caseId         String?
+  amount         Decimal           @db.Decimal(10, 2)
+  vatAmount      Decimal           @db.Decimal(10, 2) @default(0)
+  currency       String            @default("AED")
+  status         InvoiceStatus     @default(PENDING)
+  recurring      RecurringInterval @default(NONE)
+  dueDate        DateTime
+  issuedDate     DateTime          @default(now())
+  paidDate       DateTime?
+  createdBy      User              @relation("InvoiceCreator", fields: [createdById], references: [id])
+  createdById    String
+  lineItems      InvoiceLineItem[]
+  reminders      InvoiceReminder[]
+  createdAt      DateTime          @default(now())
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(cuid())
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId   String
+  description String
+  quantity    Int      @default(1)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+}
+
+model InvoiceReminder {
+  id         String   @id @default(cuid())
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId  String
+  sentAt     DateTime @default(now())
+  channel    String   @default("email")
+  note       String?
+}
+
+// ---------- 3. Internal Calling & Messaging ----------
+
+model Message {
+  id           String    @id @default(cuid())
+  sender       User      @relation("MessageSender", fields: [senderId], references: [id])
+  senderId     String
+  recipient    User      @relation("MessageRecipient", fields: [recipientId], references: [id])
+  recipientId  String
+  case         Case?     @relation(fields: [caseId], references: [id])
+  caseId       String?
+  body         String
+  readAt       DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+model CallLog {
+  id          String    @id @default(cuid())
+  loggedBy    User      @relation("CallLogger", fields: [loggedById], references: [id])
+  loggedById  String
+  case        Case?     @relation(fields: [caseId], references: [id])
+  caseId      String?
+  contactName String
+  direction   String    @default("outbound") // outbound | inbound
+  durationMin Int?
+  notes       String?
+  occurredAt  DateTime  @default(now())
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  title      String
+  body       String?
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+// ---------- 4. Sales / Case Pipeline ----------
+
+model Case {
+  id            String     @id @default(cuid())
+  referenceCode String     @unique
+  clientName    String
+  clientEmail   String?
+  clientPhone   String?
+  serviceType   String     // e.g. Consulting, Implementation, Support Plan
+  stage         CaseStage  @default(INQUIRY)
+  owner         User       @relation("CaseOwner", fields: [ownerId], references: [id])
+  ownerId       String
+  notes         String?
+  followUpDate  DateTime?
+  invoices      Invoice[]
+  messages      Message[]
+  callLogs      CallLog[]
+  documents     Document[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model Document {
+  id          String    @id @default(cuid())
+  case        Case?     @relation(fields: [caseId], references: [id])
+  caseId      String?
+  owner       User?     @relation(fields: [ownerId], references: [id])
+  ownerId     String?
+  fileName    String
+  fileUrl     String
+  docType     String?   // contract, ID, certificate, invoice, etc.
+  expiryDate  DateTime?
+  uploadedAt  DateTime  @default(now())
+}
