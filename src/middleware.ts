@@ -1,5 +1,8 @@
-import { auth } from "@/lib/auth";
+import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
+import { authConfig } from "@/lib/auth.config";
+
+const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   const isLoggedIn = !!req.auth;
@@ -7,15 +10,8 @@ export default auth((req) => {
   const isApiAuth = req.nextUrl.pathname.startsWith("/api/auth");
 
   if (isApiAuth) return NextResponse.next();
-
-  if (!isLoggedIn && !isOnLogin) {
-    return NextResponse.redirect(new URL("/login", req.nextUrl));
-  }
-
-  if (isLoggedIn && isOnLogin) {
-    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
-  }
-
+  if (!isLoggedIn && !isOnLogin) return NextResponse.redirect(new URL("/login", req.nextUrl));
+  if (isLoggedIn && isOnLogin) return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
   return NextResponse.next();
 });
 
