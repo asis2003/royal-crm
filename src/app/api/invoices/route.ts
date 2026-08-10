@@ -36,15 +36,13 @@ export async function DELETE(req: NextRequest) {
   const session = await requireSession();
   const { id } = await req.json();
 
+  if (session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Only an admin can delete invoices." }, { status: 403 });
+  }
+
   const invoice = await prisma.invoice.findUnique({ where: { id } });
   if (!invoice) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  // Ownership check: a USER may only delete invoices they created themselves.
-  // ADMIN may delete any invoice.
-  if (session.user.role !== "ADMIN" && invoice.createdById !== session.user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   await prisma.invoice.delete({ where: { id } });
